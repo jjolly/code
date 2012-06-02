@@ -226,65 +226,86 @@ int btree_find_child(btree_node *r, void *k) {
     return i;
 }
 
+int btree_move_node_to_array(btree_node *r, void **keyarray, void **valarray, btree_node **childarray) {
+    int i;
+    childarray[0] = r->child[0];
+    r->child[0] = NULL;
+    for ( i = 0; i < BTREE_NODES(r->bt->order) && r->keys[i] != NULL; i++ ) {
+        keyarray[i] = r->keys[i];
+        valarray[i] = r->values[i];
+        childarray[i+1] = r->child[i+1];
+        r->keys[i] = NULL;
+        r->values[i] = NULL;
+        r->child[i+1] = NULL;
+    }
+    return i;
+}
+
+int btree_move_keys_to_node(btree_node *r, int i, int node_count, int keycount, void **keyarray, void **valarray, btree_node **childarray) {
+    int j, rightcount = (keycount - node_count) / (node_count + 1);
+
+    keycount -= rightcount;
+
+    r->child[i]->child[0] = childarray[keycount];
+
+    for ( j = 0; j < rightcount; j++ ) {
+        r->child[i]->keys[j] = keyarray[keycount + j];
+        r->child[i]->values[j] = keyarray[keycount + j];
+        r->child[i]->child[j+1] = childarray[keycount + j + 1];
+    }
+
+    if ( keycount > 0 ) {
+        keycount--;
+        r->keys[i-1] = keyarray[keycount];
+        r->values[i-1] = valarray[keycount];
+    }
+
+    return keycount;
+}
+
 void btree_balance_node_at_child(btree_node *r, int i) {
+    void **keyarray, **valarray;
+    btree_node **childarray;
+
     /* Count the keys in the child node to determine if a balance is needed */
-    int rightcount, j = count_keys(r->child[i]);
+    int rightkey, keycount, rightcount, j = count_keys(r->child[i]);
     if ( r->child[i] != NULL && j < r->child[i]->bt->order ) {
         /* We need at least one child to the left */
         if ( i == 0 ) i++;
-        int rightkey = 0;
-        int keycount = count_keys(r->child[i-1]);
+
+        keycount = count_keys(r->child[i-1]);
         keycount += count_keys(r->child[i]) + 1;
+
+        rightkey = 0;
         if ( i < BTREE_NODES(r->bt->order) && r->child[i+1] != NULL ) {
             rightkey = 1;
             keycount += count_keys(r->child[i+1]) + 1;
         }
-        void **keyarray = malloc(sizeof(void *) * keycount);
-        void **valarray = malloc(sizeof(void *) * keycount);
-        btree_node **childarray = malloc(sizeof(btree_node *) * (keycount + 1));
-        childarray[0] = r->child[i-1]->child[0];
-        r->child[i-1]->child[0] = NULL;
-        for ( j = 0; j < BTREE_NODES(r->child[i-1]->bt->order) && r->child[i-1]->keys[j] != NULL; j++ ) {
-            keyarray[j] = r->child[i-1]->keys[j];
-            valarray[j] = r->child[i-1]->values[j];
-            childarray[j+1] = r->child[i-1]->child[j+1];
-            r->child[i-1]->keys[j] = NULL;
-            r->child[i-1]->values[j] = NULL;
-            r->child[i-1]->child[j+1] = NULL;
-        }
-        keyarray[j] = r->keys[i-1];
-        valarray[j] = r->values[i-1];
+
+        keyarray = malloc(sizeof(void *) * keycount);
+        valarray = malloc(sizeof(void *) * keycount);
+        childarray = malloc(sizeof(btree_node *) * (keycount + 1));
+
+        keycount = btree_move_node_to_array(r->child[i-1], keyarray, valarray, childarray);
+
+        keyarray[keycount] = r->keys[i-1];
+        valarray[keycount] = r->values[i-1];
         r->keys[i-1] = NULL;
         r->values[i-1] = NULL;
-        keycount = j + 1;
-        childarray[keycount] = r->child[i]->child[0];
-        r->child[i]->child[0] = NULL;
-        for ( j = 0; j < BTREE_NODES(r->child[i]->bt->order) && r->child[i]->keys[j] != NULL; j++ ) {
-            keyarray[j + keycount] = r->child[i]->keys[j];
-            valarray[j + keycount] = r->child[i]->values[j];
-            childarray[j + 1 + keycount] = r->child[i]->child[j+1];
-            r->child[i]->keys[j] = NULL;
-            r->child[i]->values[j] = NULL;
-            r->child[i]->child[j+1] = NULL;
-        }
-        keycount += j;
+
+        keycount++;
+
+        keycount += btree_move_node_to_array(r->child[i], keyarray + keycount, valarray + keycount, childarray + keycount);
+
         if ( rightkey ) {
             keyarray[keycount] = r->keys[i];
             valarray[keycount] = r->values[i];
             r->keys[i] = NULL;
             r->values[i] = NULL;
+
             keycount++;
-            childarray[keycount] = r->child[i+1]->child[0];
-            r->child[i+1]->child[0] = NULL;
-            for ( j = 0; j < BTREE_NODES(r->child[i+1]->bt->order) && r->child[i+1]->keys[j] != NULL; j++ ) {
-                keyarray[j + keycount] = r->child[i+1]->keys[j];
-                valarray[j + keycount] = r->child[i+1]->values[j];
-                childarray[j + 1 + keycount] = r->child[i+1]->child[j+1];
-                r->child[i+1]->keys[j] = NULL;
-                r->child[i+1]->values[j] = NULL;
-                r->child[i+1]->child[j+1] = NULL;
-            }
-            keycount += j;
+
+            keycount += btree_move_node_to_array(r->child[i+1], keyarray + keycount, valarray + keycount, childarray + keycount);
 
             /* Since we're dealing with the right key, check if it needs to
              * be merged out or if it can stick around */
@@ -294,16 +315,7 @@ void btree_balance_node_at_child(btree_node *r, int i) {
             } else {
                 /* Take our fair share and let the rest be shared between the
                  * two children to the left */
-                rightcount = (keycount - 2) / 3;
-                keycount -= rightcount + 1;
-                r->keys[i] = keyarray[keycount];
-                r->values[i] = valarray[keycount];
-                r->child[i+1]->child[0] = childarray[keycount + 1];
-                for ( j = 0; j < rightcount; j++ ) {
-                    r->child[i+1]->keys[j] = keyarray[keycount + j + 1];
-                    r->child[i+1]->values[j] = keyarray[keycount + j + 1];
-                    r->child[i+1]->child[j+1] = childarray[keycount + j + 2];
-                }
+                keycount = btree_move_keys_to_node(r, i+1, 2, keycount, keyarray, valarray, childarray);
             }
         }
 
@@ -312,24 +324,12 @@ void btree_balance_node_at_child(btree_node *r, int i) {
             /* Nope, delete the key, shift the other keys */
             btree_node_shift_left(r, i);
         } else {
-            rightcount = (keycount - 1) / 2;
-            keycount -= rightcount + 1;
-            r->keys[i-1] = keyarray[keycount];
-            r->values[i-1] = valarray[keycount];
-            r->child[i]->child[0] = childarray[keycount + 1];
-            for ( j = 0; j < rightcount; j++ ) {
-                r->child[i]->keys[j] = keyarray[keycount + j + 1];
-                r->child[i]->values[j] = keyarray[keycount + j + 1];
-                r->child[i]->child[j+1] = childarray[keycount + j + 2];
-            }
+            keycount = btree_move_keys_to_node(r, i, 1, keycount, keyarray, valarray, childarray);
         }
 
-        r->child[i-1]->child[0] = childarray[0];
-        for ( j = 0; j < keycount; j++ ) {
-            r->child[i-1]->keys[j] = keyarray[j];
-            r->child[i-1]->values[j] = valarray[j];
-            r->child[i-1]->child[j+1] = childarray[j+1];
-        }
+        /* Put the last of the key/value pairs into the leftmost child node */
+        btree_move_keys_to_node(r, i-1, 0, keycount, keyarray, valarray, childarray);
+
         free(keyarray);
         free(valarray);
         free(childarray);
