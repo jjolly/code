@@ -219,15 +219,9 @@ int btree_find_child(btree_node *r, void *k) {
     return i;
 }
 
-btree_node *btree_remove_node(btree_node *r, void *k) {
-    if (r == NULL ) return;
-    int i, j, rightcount;
-
-    i = btree_find_child(r, k);
-    btree_remove_node(r->child[i], k);
-
+void btree_balance_node_at_child(btree_node *r, int i) {
     /* Count the keys in the child node to determine if a balance is needed */
-    j = count_keys(r->child[i]);
+    int rightcount, j = count_keys(r->child[i]);
     if ( r->child[i] != NULL && j < r->child[i]->bt->order ) {
         /* We need at least one child to the left */
         if ( i == 0 ) i++;
@@ -333,6 +327,15 @@ btree_node *btree_remove_node(btree_node *r, void *k) {
         free(valarray);
         free(childarray);
     }
+}
+
+btree_node *btree_remove_node(btree_node *r, void *k) {
+    if (r == NULL ) return;
+    int i, j, rightcount;
+
+    i = btree_find_child(r, k);
+    btree_remove_node(r->child[i], k);
+    btree_balance_node_at_child(r, i);
 }
 
 void btree_remove(btree *bt, void *k) {
