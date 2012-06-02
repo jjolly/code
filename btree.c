@@ -179,25 +179,27 @@ int count_keys(btree_node *r) {
     return i;
 }
 
-btree_node *btree_remove_node(btree_node *r, void *k) {
-    if (r == NULL ) return;
-    int i, j, rightcount;
+void btree_node_shift_left(btree_node *r, int i) {
+    if ( r->keys[i] != NULL || r->values[i] != NULL ) r->bt->key_free(r->keys[i], r->values[i]);
+    if ( r->child[i+1] != NULL ) free_node(r->child[i+1]);
+    for ( ; i < BTREE_NODES(r->bt->order) - 1 && r->keys[i+1] != NULL; i++ ) {
+        r->keys[i] = r->keys[i+1];
+        r->values[i] = r->values[i+1];
+        r->child[i+1] = r->child[i+2];
+    }
+    r->keys[i] = NULL;
+    r->values[i] = NULL;
+    r->child[i+1] = NULL;
+}
 
+int btree_find_child(btree_node *r, void *k) {
+    int i,j;
     for ( i = 0; i < BTREE_NODES(r->bt->order) && r->keys[i] != NULL; i++ ) {
         int diff = r->bt->key_compare(k, r->keys[i]);
         if ( diff == 1 ) continue;
         if ( diff == 0 ) {
             if ( r->child[i + 1] == NULL ) {
-                /* Remove the key and value */
-                r->bt->key_free(r->keys[i], r->values[i]);
-                /* Shift everything left */
-                for ( j = i; j < BTREE_NODES(r->bt->order) - 1 && r->keys[j+1] != NULL; j++ ) {
-                    r->keys[j] = r->keys[j+1];
-                    r->values[j] = r->values[j+1];
-                    /* The child links should all be null, no reason to move */
-                }
-                r->keys[j] = NULL;
-                r->values[j] = NULL;
+                btree_node_shift_left(r, i);
             } else {
                 /* We're not in a leaf node. Find the leaf and swap */
                 void *tmpkey = r->keys[i];
@@ -214,6 +216,14 @@ btree_node *btree_remove_node(btree_node *r, void *k) {
         }
         break;
     }
+    return i;
+}
+
+btree_node *btree_remove_node(btree_node *r, void *k) {
+    if (r == NULL ) return;
+    int i, j, rightcount;
+
+    i = btree_find_child(r, k);
     btree_remove_node(r->child[i], k);
 
     /* Count the keys in the child node to determine if a balance is needed */
@@ -279,15 +289,7 @@ btree_node *btree_remove_node(btree_node *r, void *k) {
              * be merged out or if it can stick around */
             if ( keycount < r->bt->order * 3 + 2 ) {
                 /* There are not enough keys to support this structure. Merge */
-                free_node(r->child[i+1]);
-                for ( j = i; j < BTREE_NODES(r->bt->order) - 1 && r->keys[j+1] != NULL; j++ ) {
-                    r->keys[j] = r->keys[j+1];
-                    r->values[j] = r->values[j+1];
-                    r->child[j+1] = r->child[j+2];
-                }
-                r->keys[j] = NULL;
-                r->values[j] = NULL;
-                r->child[j+1] = NULL;
+                btree_node_shift_left(r, i);
             } else {
                 /* Take our fair share and let the rest be shared between the
                  * two children to the left */
@@ -307,15 +309,7 @@ btree_node *btree_remove_node(btree_node *r, void *k) {
         /* Are there enough keys to spread between two children? */
         if ( keycount <= BTREE_NODES(r->bt->order) ) {
             /* Nope, delete the key, shift the other keys */
-            free_node(r->child[i]);
-            for ( j = i - 1; j < BTREE_NODES(r->bt->order) - 1 && r->keys[j+1] != NULL; j++) {
-                r->keys[j] = r->keys[j+1];
-                r->values[j] = r->values[j+1];
-                r->child[j+1] = r->values[j+2];
-            }
-            r->keys[j] = NULL;
-            r->values[j] = NULL;
-            r->child[j+1] = NULL;
+            btree_node_shift_left(r, i);
         } else {
             rightcount = (keycount - 1) / 2;
             keycount -= rightcount + 1;
