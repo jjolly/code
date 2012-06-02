@@ -193,23 +193,30 @@ void btree_node_shift_left(btree_node *r, int i) {
 }
 
 int btree_find_child(btree_node *r, void *k) {
-    int i,j;
+    int i, diff;
+    void *tmpkey, *tmpval;
+    btree_node *leaf;
+
     for ( i = 0; i < BTREE_NODES(r->bt->order) && r->keys[i] != NULL; i++ ) {
-        int diff = r->bt->key_compare(k, r->keys[i]);
+        diff = r->bt->key_compare(k, r->keys[i]);
         if ( diff == 1 ) continue;
         if ( diff == 0 ) {
             if ( r->child[i + 1] == NULL ) {
+                /* Found it in a leaf. Delete the key/value and shift left */
                 btree_node_shift_left(r, i);
             } else {
                 /* We're not in a leaf node. Find the leaf and swap */
-                void *tmpkey = r->keys[i];
-                void *tmpval = r->values[i];
-                btree_node *leaf = r->child[i + 1];
+                tmpkey = r->keys[i];
+                tmpval = r->values[i];
+                leaf = r->child[i + 1];
+
                 while ( leaf->child[0] != NULL ) leaf = leaf->child[0];
+
                 r->keys[i] = leaf->keys[0];
                 r->values[i] = leaf->values[0];
                 leaf->keys[0] = tmpkey;
                 leaf->values[0] = tmpval;
+
                 /* Bump to the next node so we follow the correct child */
                 i++;
             }
@@ -330,12 +337,21 @@ void btree_balance_node_at_child(btree_node *r, int i) {
 }
 
 btree_node *btree_remove_node(btree_node *r, void *k) {
-    if (r == NULL ) return;
-    int i, j, rightcount;
+    int i;
 
-    i = btree_find_child(r, k);
-    btree_remove_node(r->child[i], k);
-    btree_balance_node_at_child(r, i);
+    if ( r != NULL ) {
+        /* First, find the child node to search next */
+        /* This call will actually remove the key and value if found in a leaf,
+         * otherwise, it will move the found value to the next position on a
+         * leaf and report the child leading to the leaf */
+        i = btree_find_child(r, k);
+
+        /* Recursively call to the child node */
+        btree_remove_node(r->child[i], k);
+
+        /* Balance the child if necessary */
+        btree_balance_node_at_child(r, i);
+    }
 }
 
 void btree_remove(btree *bt, void *k) {
