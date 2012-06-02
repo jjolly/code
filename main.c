@@ -24,10 +24,10 @@ BTREE_DEFINE(test, uintptr_t, uintptr_t)
 int main(int argc, char *argv[]) {
     btree bt;
 
-    btree_test_init(&bt, 5);
+    btree_test_init(&bt, 2);
 
     int i;
-    for ( i = 1; i <= MAX_COUNT * 111; i++ ) {
+    for ( i = 1; i <= MAX_COUNT; i++ ) {
         btree_test_insert(&bt, i, 0);
     }
     btree_dump(stderr, &bt);
